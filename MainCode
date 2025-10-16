@@ -1,0 +1,214 @@
+import random
+import numpy as np
+
+
+def create_deck():
+    suits = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
+    ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'Jack', 'Queen', 'King', 'Ace']
+    deck = [(rank, suit) for rank in ranks for suit in suits]
+    deck.append(('Old Maid', 'Joker'))
+    return deck
+
+def shuffle_deck(deck):
+    random.shuffle(deck)
+
+def deal_cards(deck, players):
+    num_players = len(players)
+    cards_per_player = len(deck) // num_players
+    for i in range(num_players):
+        players[i].extend(deck[i * cards_per_player : (i + 1) * cards_per_player])
+
+def remove_pairs(player):
+    ranks = [card[0] for card in player if card[0] != 'Old Maid']
+    for rank in set(ranks):
+        if ranks.count(rank) == 2:
+            for _ in range(2):
+                player.remove((rank, [card[1] for card in player if card[0] == rank][0]))
+
+def play_old_maid():
+    print("Welcome to Old Maid card game!\n")
+    num_players = int(input("Enter the number of players (2 or more): "))
+
+    if num_players < 2:
+        print("At least 2 players are required to play the game.")
+        return
+
+    deck = create_deck()
+    shuffle_deck(deck)
+    players = [[] for _ in range(num_players)]
+
+    deal_cards(deck, players)
+
+    while True:
+        for i in range(num_players):
+            print(f"\nPlayer {i+1}'s turn:")
+            print("Your hand:", players[i])
+
+            if num_players == 1:
+                print("Only one player left. You lose!")
+                return
+            
+            remove_pairs(players[i])
+
+            print(players[i])
+
+            # Check if the player has any cards left
+            if len(players[i]) == 0:
+                print(f"Player {i+1} has no more cards. They are out of the game!")
+                players[i] = None  # 해당 플레이어 표시
+                num_players -= 1
+
+                next_player = (i + 1) % len(players)
+                while players[next_player] is None:
+                     next_player = (next_player + 1) % len(players)
+                     i = next_player  # 다음 플레이어로 이동
+                continue
+
+            # Ask the player to choose a card from the next player
+            next_player = (i + 1) % num_players  
+            card_index = int(input(f"Choose a card index (0-{len(players[next_player])-1}): "))
+            card = players[next_player].pop(card_index)
+            print("chosen next player's card: ", card)  # 뽑힌 상대방의 카드
+
+            players[i].append(card)
+
+            # Remove pairs from the player's hand
+            remove_pairs(players[i])
+
+            print(players[i])
+
+            # Check if the player has any cards left
+            if len(players[i]) == 0:
+                print(f"Player {i+1} has no more cards. They are out of the game!")
+                players[i] = None  # 해당 플레이어 표시
+                num_players -= 1
+
+                next_player = (i + 1) % len(players)
+                while players[next_player] is None:
+                     next_player = (next_player + 1) % len(players)
+                     i = next_player  # 다음 플레이어로 이동
+                continue
+
+'''
+if __name__ == "__main__":
+    play_old_maid()
+'''
+    
+#RL code
+    
+class OldMaidEnvironment:
+    def __init__(self, num_players):
+        self.num_players = num_players
+        self.players = [[] for _ in range(num_players)]   #플레이어 카드
+        self.deck = create_deck()
+        shuffle_deck(self.deck)
+        deal_cards(self.deck, self.players)
+        self.current_player = 0   #현재 차례
+
+    def get_state(self):
+        return tuple(self.players[self.current_player])
+
+    def step(self, action):
+        next_player = (self.current_player + 1) % self.num_players
+       
+        if action == 0 and len(self.players[next_player]) > 0:  # 다음 플레이어의 카드 가져오는 행동
+            card_indices = list(range(len(self.players[next_player])))
+            chosen_card_index = random.choice(card_indices)
+
+            chosen_card = self.players[next_player].pop(chosen_card_index)
+            self.players[self.current_player].append(chosen_card)
+
+            if chosen_card[0] == 'Old Maid':  # 조커 카드인 경우
+                reward = -10
+            else:  # 조커 카드가 아닌 경우
+                reward = -1
+        elif action == 1:  # 다음 플레이어의 카드 안 가져오는 행동
+            reward = 0  # 행동을 안하는 경우 보상은 0
+            chosen_card_index = None  # 이 경우 카드를 선택하지 않으므로 None으로 설정
+
+
+        # 카드를 버리는 action
+        if len(self.players[self.current_player]) > 1:
+            remove_pairs(self.players[self.current_player])
+            reward = +2
+
+
+        # 게임이 끝났는지 여부 확인
+        done = (len(self.players[self.current_player]) == 1 and self.players[self.current_player][0][0] == 'Old Maid')
+
+        # 다음 플레이어로 넘어가기
+        self.current_player = next_player
+
+        return self.get_state(), reward, done
+
+class MC_RLAgent:
+    def __init__(self, num_actions, discount_factor=0.9):
+        self.num_actions = num_actions
+        self.discount_factor = discount_factor
+        self.returns = {}
+        self.Q_table = {}
+
+    def choose_action(self, state):
+        # Q-value가 가장 높은 행동 선택 (Exploitation)
+        if state not in self.Q_table:
+            # 만약 현재 상태의 Q-value가 없다면 무작위 행동 선택
+            action = random.randint(0, self.num_actions - 1)
+        else:
+            action = max(range(self.num_actions), key=lambda x: self.Q_table[state][x])
+        return action
+
+    def update_q_table(self, episode_memory):
+        G = 0  # 에피소드의 반환값 초기화
+        for t in reversed(range(len(episode_memory))):
+            state, action, reward = episode_memory[t]
+            G = self.discount_factor * G + reward
+
+            if (state, action) not in [(x[0], x[1]) for x in episode_memory[:t]]:
+                if (state, action) in self.returns:
+                    self.returns[(state, action)].append(G)
+                    self.Q_table[state][action] = np.mean(self.returns[(state, action)])
+
+# 게임 실행
+if __name__ == "__main__":
+    num_players = 2  # 플레이어 수
+    env = OldMaidEnvironment(num_players)
+    agent = MC_RLAgent(num_actions=2)  # 가능한 행동 수에 따라 설정
+
+    num_episodes = 10000  # 학습 에피소드 수
+    print_freq = 50  # 출력 빈도
+
+     # 결과 저장을 위한 리스트
+    rewards_per_episode = []
+
+    for episode in range(num_episodes):
+        state = env.get_state()
+        done = False
+        total_reward = 0  # 에피소드별 총 보상 초기화
+        episode_memory = []
+
+        while not done:
+            action = agent.choose_action(state)
+            next_state, reward, done = env.step(action)
+            episode_memory.append((state, action, reward))
+            state = next_state
+            total_reward += reward  # 총 보상 누적
+
+        rewards_per_episode.append(total_reward)  # 각 에피소드별 총 보상 저장
+
+        agent.update_q_table(episode_memory)  # MC 알고리즘으로 Q-table 업데이트
+
+        if (episode + 1) % print_freq == 0:
+            print(f"Episode {episode + 1}/{num_episodes} completed")
+            
+    average_reward = sum(rewards_per_episode) / num_episodes  # 평균 보상 계산
+    print(f"Average reward over {num_episodes} episodes: {average_reward}")
+    print("Training completed!")
+
+    # 학습 결과 출력
+    import matplotlib.pyplot as plt
+
+    plt.plot(rewards_per_episode)
+    plt.xlabel('Episode')
+    plt.ylabel('Total Reward per Episode')
+    plt.title('Training Progress')
+    plt.show()
